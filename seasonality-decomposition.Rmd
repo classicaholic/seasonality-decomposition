@@ -1,0 +1,101 @@
+---
+title: "Seasonality decomposition using decompose and stl"
+author: "classicaholic"
+date: "2015년 8월 6일"
+output: html_document
+---
+
+__Trend/seasonality decomposition을 위한 function 2종류__
+
+1. decompose의 특징
+    + additive와 multiplicative를 모두 지원한다. 둘의 차이점은 아래의 그림 참고. (multiplicative는 stl가 기본 지원하지 않으므로 특히 유용)
+    ![Additive vs. Multiplicative](http://mcu.edu.tw/~ychen/op_mgm/notes/part2_files/image118.gif)
+    + Classical Seasonality Decomposition by Moving Average이며, 가장 기초적이고 기본적인 방법
+
+2. stl의 특징
+    + smoothing 기능을 지원 (t.window=n)
+    + 그 외에도 다양한 옵션을 지원하므로 매뉴얼을 참고할 것
+    + observation data에 log / exp를 사용함으로써 multiplicative 방식의 수치를 얻을 수 있으나, seasonality가 매우 밋밋하여 seasonality 편차가 큰 경우에는 부적절 (e.g. 대형마트에서의 주중 vs 주말 sales 등)
+    + log / exp를 씌워서 multiplicative 방식으로 적용할 경우 observation이 0보다 커야 함 (0에 log를 씌우면 에러나니까 ㅎ)
+    + log / exp로 multiplicative가 된다면, sqrt / 제곱으로는 비슷한 결과를 얻을 수 있지 않나? (classicaholic's note on 2014.10.05)
+    + decompose를 이용하여 얻은 trend에 다시 stl에 적용하는 방식으로도 활용할 수 있을 것으로 보임
+
+__Seasonality 분석 및 활용 시 주의할 점__
+
+1. Seasonality 분석 시 __최소 4년치 이상__의 데이터 필요
+
+2. 데이터의 뒷부분 기준으로 개수를 세어서 seasonality가 나오는 점에 주의 (무슨 말이냐 하면, 2007년 1월부터 2013년 9월까지의 data가 있을 경우, seasonality로 추출된 값은 1월부터 12월까지의 seasonality가 아니라, 10월부터 9월까지의 seasonality로 계산된다)
+
+이제 분석을 시작해보자. 먼저 샘플 데이터를 불러온다.
+
+```{r}
+sample.data <- read.csv('sample data.csv')
+```
+
+frequency는 원래 365(일), 12(월), 4(분기) 등으로 지정하지만, 아래의 경우, 1주일 seasonality를 분석하기 위해 7을 지정했다. 참고로, 7은 기본 옵션에는 없는 숫자이지만 분석에는 지장이 없다.
+
+```{r}
+temp.ts <- ts(sample.data$sales.POS.amount, start=c(2010,1,1), frequency=7)
+```
+
+NA가 있을 경우 0으로 치환해준다.
+
+```{r}
+temp.ts[is.na(temp.ts)] <- 0
+```
+
+decompose / additive 방식으로 해보자. decompose에서는 달리 지정할 옵션이 많지 않다.
+
+```{r}
+temp.decompose <- decompose(temp.ts, 'additive')
+plot(temp.decompose)
+```
+
+decompose / multiplicative 방식으로 해보자. 바뀐 건 거의 없다.
+
+```{r}
+temp.decompose <- decompose(temp.ts, 'multiplicative')
+plot(temp.decompose)
+```
+
+아래는 decompose의 output object를 data.frame으로 변환시켜서 저장하는 방법이다. 참고로, stl의 output object와 저장 방식이 달라서 data.frame으로 전환하는 방법에 약간 차이가 있다.
+
+```{r}
+temp.output <- data.frame(temp.decompose[2:4])
+temp.output <- as.data.frame(as.ts(temp.output, 'matrix'))
+names(temp.output) <- c('decompose.seasonal', 'decompose.trend', 'decompose.random')
+write.csv(temp.output, 'example.csv')
+```
+
+아래는 stl / additive 방식이다.
+
+```{r}
+temp.stl<- stl(temp.ts, s.window='per', t.window=30, robust=TRUE)
+plot(temp.stl)
+temp.output <- as.data.frame(temp.stl$time.series)
+names(temp.output) <- c('stl.seasonal', 'stl.trend', 'stl.remainder')
+write.csv(temp.output, 'example.csv')
+```
+
+아래는 stl / multiplicative(log/exp) 방식이다.
+
+```{r}
+temp.log <- log(sample.data$sales.POS.amount) # 데이터에 로그를 취한다
+temp.log.ts <- ts(temp.log, start=c(2010,1,1), frequency=7)
+temp.log.ts[is.na(temp.log.ts)] <- 0
+temp.stl<- stl(temp.log.ts, s.window='per', t.window=30, robust=TRUE)
+plot(temp.stl)
+temp.output <- as.data.frame(temp.stl$time.series)
+temp.output <- exp(temp.output) # 분석된 데이터에 exp를 취한다
+names(temp.output) <- c('stl.seasonal', 'stl.trend', 'stl.remainder')
+write.csv(temp.output, 'example.csv')
+```
+
+그림 파일로 저장하는 방법은 아래와 같다.
+
+```{r}
+png(filename='example.png', width=2000, height=1000)
+plot(temp.decompose)
+dev.off()
+```
+
